@@ -1,0 +1,57 @@
+name: Linux Capstone CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show repository files
+        run: find . -maxdepth 3 -type f | sort
+
+      - name: Validate health check script syntax
+        run: bash -n scripts/healthcheck.sh
+
+      - name: Verify required files
+        run: |
+          test -f app/index.html
+          test -f app/health.txt
+          test -f config/app.env.example
+          test -f systemd/rohand-linux-lab.service
+
+      - name: Verify health endpoint content
+        run: grep -qx 'OK' app/health.txt
+
+      - name: Start test web server
+        run: |
+          python3 -m http.server 8090 \
+            --bind 127.0.0.1 \
+            --directory app > /tmp/linux-capstone-http.log 2>&1 &
+          echo $! > /tmp/linux-capstone-http.pid
+          sleep 2
+
+      - name: Test homepage
+        run: curl -fsS http://127.0.0.1:8090/
+
+      - name: Test health endpoint
+        run: |
+          result=$(curl -fsS http://127.0.0.1:8090/health.txt)
+          test "$result" = "OK"
+
+      - name: Stop test web server
+        if: always()
+        run: |
+          if [ -f /tmp/linux-capstone-http.pid ]; then
+            kill "$(cat /tmp/linux-capstone-http.pid)" || true
+          fi
